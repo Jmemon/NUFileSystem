@@ -10,6 +10,7 @@
 #include <fcntl.h>
 #include <errno.h>
 #include <stdio.h>
+#include <stdint.h>
 
 #include "directory.h"
 #include "pages.h"
@@ -38,9 +39,6 @@ directory_init()
 		rn->iptr = -1;
     }
 
-	int err_check = grow_inode(rn, PAGE_SIZE);
-	assert(err_check == PAGE_SIZE);
-
 	printf("Root Inode (Inum 1): \n");
 	print_inode(rn);
 }
@@ -53,7 +51,7 @@ directory_get(inode* dd, const char* name)
 	int curr_ptr = 0;
 
 	long i = 0;
-	do {
+	while (i < num_entries) {
 
 		if (streq(name, ent->name))
 			return ent;
@@ -70,8 +68,7 @@ directory_get(inode* dd, const char* name)
 		}
 		else 
 			ent += 1;
-
-	} while(i < num_entries);
+	}
 
 	return NULL;
 }
@@ -90,9 +87,11 @@ int
 tree_lookup(const char* path)
 {
 	slist* p_tok = s_split(path, '/');
+	if (p_tok)
+		p_tok = p_tok->next;
 
 	// if path is just root
-	if (streq(p_tok->data, ""))
+	if (!p_tok)
 		return 1;
 
 	int inum = -1;
@@ -128,6 +127,8 @@ directory_put(const char* dir_path, const char* name, int inum)
 	int num_entries = node->size / sizeof(dirent);
 	dirent* ent = NULL;
 
+	grow_inode(node, node->size + sizeof(dirent));
+
 	if (num_entries < PAGE_SIZE / sizeof(dirent)) {
 		ent = (dirent*)pages_get_page(node->ptrs[0]);
 		ent += num_entries;
@@ -140,7 +141,7 @@ directory_put(const char* dir_path, const char* name, int inum)
 		;// TODO: Indirect Pointers
 	}
 
-	strlcpy(ent->name, name, strlen(name));
+	strlcpy(ent->name, name, strlen(name) + 1);
 	ent->inum = inum;
 
     return 0;
@@ -151,17 +152,17 @@ directory_delete(const char* path)
 {
     printf(" + directory_delete(%s)\n", path);
 
-	// TODO: Add in case where p_tok is length one (file is in root)
 	// TODO: Add in case where we are deleting a directory
 
-	// get name of directory to delete from
 	slist* p_tok = s_split(path, '/');
-	if (!p_tok) {
+
+	// if trying to delete the root
+	if (streq(p_tok->data, "") && !p_tok->next) {
 		printf("directory_delete: Cannot delete root\n");
 		return -EINVAL;
 	}
 
-	// Get to directory of thing to delete
+	// Get to directory to delete from
 	while (p_tok && p_tok->next && p_tok->next->next)
 		p_tok = p_tok->next;
 
@@ -169,16 +170,90 @@ directory_delete(const char* path)
     int inum = tree_lookup(p_tok->data);
 	inode* p_dir = get_inode(inum);
 
-	// Free node and its pages within p_dir
+	// get file name to delete
 	p_tok = p_tok->next;
 	char* name = p_tok->data;
-	inum = directory_lookup(p_dir, name);
-    free_inode(inum);
 
 	// Remove directory entry
-    dirent* ent = directory_get(p_dir, name);
-	memset(ent, 0, sizeof(dirent));
-	// TODO: shift all dirents after removed back one dirent
+	int num_entries = p_dir->size / sizeof(dirent);
+	dirent* ent = (dirent*)pages_get_page(p_dir->ptrs[0]);
+	int curr_ptr = 0;
+
+	long i = 0;
+	while (i < num_entries) {
+
+		if (streq(name, ent->name))
+			break;
+
+		i += 1;
+		if (i % (PAGE_SIZE / sizeof(dirent)) == 0 && curr_ptr == 0) {
+			ent = (dirent*)pages_get_page(p_dir->ptrs[1]);
+			curr_ptr += 1;
+		}
+		else if (i % (PAGE_SIZE / sizeof(dirent)) == 0) {
+			// TODO: Indirect Ptrs
+			ent = (dirent*)pages_get_page(p_dir->iptr);
+			curr_ptr += 1;
+		}
+		else
+			ent += 1;
+	}
+
+	i += 1;
+	int ents_d = PAGE_SIZE / sizeof(dirent);
+	if (i == num_entries)
+		memset(ent, 0, sizeof(dirent));
+	else if (i < num_entries) {
+		ent += 1;
+		if (i <= ents_d) {
+			if (num_entries <= ents_d) {
+				// Shift Entries of first block back
+				void* dir_end = pages_get_page(p_dir->ptrs[0]) + num_entries * sizeof(dirent);
+				size_t size = (intptr_t)dir_end - (intptr_t)ent;
+				memcpy((void*)(ent - 1), (void*)ent, size);
+				memset(dir_end - sizeof(dirent), 0, sizeof(dirent));
+			}
+			else if (ents_d < num_entries <= 2 * ents_d) {
+				// Shift Remaining entries of first block back
+				void* dir_end = pages_get_page(p_dir->ptrs[0]) + PAGE_SIZE;
+				size_t size = (intptr_t)dir_end - (intptr_t)ent;
+				memcpy((void*)(ent - 1), (void*)ent, size);
+
+				// Shift first entry of second block to last entry of first block
+				void* dir_start = pages_get_page(p_dir->ptrs[1]);
+				size = sizeof(dirent);
+				memcpy(dir_end - sizeof(dirent), dir_start, size);
+
+				// Shift Remaining elements of second block back one entry
+				dir_end = dir_start + num_entries * sizeof(dirent);
+				size = (intptr_t)dir_end - (intptr_t)dir_start - sizeof(dirent);
+				memcpy(dir_start, dir_start + sizeof(dirent), size);
+				memset(dir_end - sizeof(dirent), 0, sizeof(dirent));
+			}
+			else {
+				// TODO: Indirect Pointers
+			}
+		}
+		else if (ents_d < i <= 2 * ents_d) {
+			if (ents_d < num_entries <= 2 * ents_d) {
+				// Shift Entries of second block back
+				void* dir_end = pages_get_page(p_dir->ptrs[1]) + (num_entries - ents_d) * sizeof(dirent);
+				size_t size = (intptr_t)dir_end - (intptr_t)ent;
+				memcpy((void*)(ent - 1), (void*)ent, size);
+				memset(dir_end - sizeof(dirent), 0, sizeof(dirent));
+			}
+			else {
+				// TODO: Indirect Pointers
+			}
+		}
+		else {
+			// TODO: Indirect Pointers
+		}
+	}
+	else {
+		printf("directory_delete: Item to delete not found\n");
+		return -ENOENT;
+	}
 
 	shrink_inode(p_dir, p_dir->size - sizeof(dirent));
     return 0;
@@ -196,9 +271,9 @@ directory_list(inode* dd)
 	int curr_ptr = 0;
 
 	long i = 0;
-	do {
+	while (i < num_entries) {
 
-		s_cons(ent->name, ys);
+		ys = s_cons(ent->name, ys);
 
 		i += 1;
 		if (i % (PAGE_SIZE / sizeof(dirent)) == 0) {
@@ -218,7 +293,7 @@ directory_list(inode* dd)
 		else 
 			ent += 1;
 
-	} while(i < num_entries);
+	}
 
     return ys;
 }

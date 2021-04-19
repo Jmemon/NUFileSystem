@@ -4,6 +4,7 @@
 
 #include "slist.h"
 
+#include <stdio.h>
 slist*
 s_cons(const char* text, slist* rest)
 {

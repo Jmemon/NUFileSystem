@@ -40,8 +40,8 @@ pages_init(const char* path)
     pages_base = mmap(0, NUFS_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED, pages_fd, 0);
     assert(pages_base != MAP_FAILED);
 
-	// set region to zero
-	memset(pages_base, 0, NUFS_SIZE);
+	// Reset Memory
+	//memset(pages_base, 0, NUFS_SIZE);
 
 	// check that page gvars have been properly initialized
 	int err = globals_pinit_check();

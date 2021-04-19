@@ -183,10 +183,10 @@ storage_truncate(const char *path, off_t size)
 int
 storage_mknod(const char* path, int mode)
 {
-	char* dir_path = NULL;
-	strlcpy(dir_path, path, strlen(path));
+	char* dir_path = alloca(strlen(path) + 1);
+	strlcpy(dir_path, path, strlen(path) + 1);
 
-	char* name = dir_path + strlen(path);
+	char* name = dir_path + strlen(path) + 1;
 
 	while (name[0] != '/')
 		name--;
@@ -229,8 +229,12 @@ storage_list(const char* path)
 int
 storage_unlink(const char* path)
 {
-    const char* name = path + 1;
-    return directory_delete(name);
+	int inum = tree_lookup(path);
+	inode* node = get_inode(inum);
+	node->refs -= 1;
+	if (node->refs == 0)
+		free_inode(inum);
+    return directory_delete(path);
 }
 
 int

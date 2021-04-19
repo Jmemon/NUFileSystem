@@ -20,6 +20,9 @@ extern const int default_file_mode;
 extern const int default_dir_mode;
 extern const int default_symlink_mode;
 
+// Mounting
+extern int num_mounts;
+
 void globals_reset();
 void globals_print();
 int globals_init_check();

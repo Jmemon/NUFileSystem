@@ -23,6 +23,9 @@ const int default_dir_mode     = S_IFDIR | S_IRWXU | S_IRGRP |
 const int default_symlink_mode = S_IFLNK | S_IRWXU | S_IRGRP | 
 							     S_IXGRP | S_IROTH | S_IXOTH;
 
+// Mounting
+int num_mounts = 0;
+
 void
 globals_reset()
 {
@@ -31,6 +34,8 @@ globals_reset()
 
 	INODE_COUNT = 0;
 	inode_base = NULL;
+
+	num_mounts = 0;
 }
 
 void

@@ -18,6 +18,8 @@
 
 #include "globals.h"
 
+extern int num_mounts;
+
 // implementation for: man 2 access
 // Checks if a file exists.
 int
@@ -70,12 +72,16 @@ nufs_readdir(const char *path, void *buf, fuse_fill_dir_t filler,
     slist* items = storage_list(path);
 
 	memset(item_path, 0, 256 * sizeof(char));
-    strlcpy(item_path, path, 256);
+    strlcpy(item_path, path, strlen(path) + 1);
+
+	char* start = item_path + strlen(path) + 1;
+	start[0] = '/';
+	start++;
 
 	while (items) {
         printf("+ looking at path: '%s'\n", items->data);
 
-		strlcpy(item_path + strlen(path), items->data, 256 - strlen(path));
+		strlcpy(start, items->data, strlen(items->data) + 1);
 		printf("%s\n", item_path);
 
         rv = storage_stat(item_path, &st);
@@ -107,7 +113,7 @@ nufs_mknod(const char *path, mode_t mode, dev_t rdev)
 int
 nufs_mkdir(const char *path, mode_t mode)
 {
-    int rv = -1;
+    int rv = storage_mknod(path, mode);
     printf("mkdir(%s) -> %d\n", path, rv);
     return rv;
 }
@@ -240,7 +246,10 @@ main(int argc, char *argv[])
 {
     assert(argc > 2 && argc < 6);
 
-    storage_init(argv[--argc]);
+	if (num_mounts == 0)
+    	storage_init(argv[--argc]);
+
+	num_mounts += 1;
 
 	int err = globals_init_check();
 	if (err == -1) {
