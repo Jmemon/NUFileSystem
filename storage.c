@@ -240,22 +240,51 @@ storage_unlink(const char* path)
 int
 storage_link(const char* from, const char* to)
 {
-    return -ENOENT;
+	int rv = 0;
+	int inum = tree_lookup(from);
+
+	int plen = strlen(to);
+	char* dir_path = alloca(plen + 1);
+	strlcpy(dir_path, to, plen + 1);
+
+	char* name = dir_path + plen + 1;
+
+	while (name[0] != '/')
+		name--;
+
+	name[0] = '\0';
+	name++;
+	
+	rv = directory_put(dir_path, name, inum);
+
+	inode* node = get_inode(inum);
+	node->refs += 1;
+
+    return rv;
 }
 
 int
 storage_rename(const char* from, const char* to)
 {
-/*
-    int inum = tree_lookup(from);
-    if (inum < 0) {
-        printf("mknod fail");
-        return inum;
-    }
+	// TODO: Include case where need to create some parent directories
 
-    char* ent = directory_get(inum);
-    strlcpy(ent, to + 1, 16);
-*/
+	int inum = tree_lookup(from);
+	directory_delete(from);
+
+	int plen = strlen(to);
+	char* dir_path = alloca(plen + 1);
+	strlcpy(dir_path, to, plen + 1);
+
+	char* name = dir_path + plen + 1;
+
+	while (name[0] != '/')
+		name--;
+
+	name[0] = '\0';
+	name++;
+
+	directory_put(dir_path, name, inum);
+
     return 0;
 }
 

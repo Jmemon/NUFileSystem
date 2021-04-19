@@ -113,6 +113,7 @@ nufs_mknod(const char *path, mode_t mode, dev_t rdev)
 int
 nufs_mkdir(const char *path, mode_t mode)
 {
+	mode = S_IFDIR | mode;
     int rv = storage_mknod(path, mode);
     printf("mkdir(%s) -> %d\n", path, rv);
     return rv;
@@ -129,7 +130,7 @@ nufs_unlink(const char *path)
 int
 nufs_link(const char *from, const char *to)
 {
-    int rv = -1;
+    int rv = storage_link(from, to);
     printf("link(%s => %s) -> %d\n", from, to, rv);
 	return rv;
 }
