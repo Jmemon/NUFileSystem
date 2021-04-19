@@ -11,6 +11,7 @@
 #include <errno.h>
 #include <stdio.h>
 #include <stdint.h>
+#include <alloca.h>
 
 #include "directory.h"
 #include "pages.h"
@@ -62,9 +63,9 @@ directory_get(inode* dd, const char* name)
 			curr_ptr += 1;
 		}
 		else if (i % (PAGE_SIZE / sizeof(dirent)) == 0) {
-			// TODO: Indirect Ptrs
-			ent = (dirent*)pages_get_page(dd->iptr);
+			int* pgs = (int*)pages_get_page(dd->iptr);
 			curr_ptr += 1;
+			ent = (dirent*)pages_get_page(pgs[curr_ptr - 2]);
 		}
 		else 
 			ent += 1;
@@ -125,20 +126,28 @@ directory_put(const char* dir_path, const char* name, int inum)
 	inode* node = get_inode(p_inum);
 
 	int num_entries = node->size / sizeof(dirent);
+	int ents_d = PAGE_SIZE / sizeof(dirent);
 	dirent* ent = NULL;
 
 	grow_inode(node, node->size + sizeof(dirent));
 
-	if (num_entries < PAGE_SIZE / sizeof(dirent)) {
+	if (num_entries < ents_d - 1) {
 		ent = (dirent*)pages_get_page(node->ptrs[0]);
 		ent += num_entries;
 	}
-	else if (num_entries < 2 * PAGE_SIZE / sizeof(dirent)) {
+	else if (num_entries < 2 * ents_d - 1) {
 		ent = (dirent*)pages_get_page(node->ptrs[1]);
-		ent += num_entries - (PAGE_SIZE / sizeof(dirent));
+		ent += num_entries - ents_d;
 	}
 	else {
-		;// TODO: Indirect Pointers
+		int* ipgs = (int*)pages_get_page(node->iptr);
+		int ents_d = PAGE_SIZE / sizeof(dirent);
+		int ipg = 0;
+		while (num_entries < (ipg + 2) * ents_d - 1)
+			ipg += 1;
+
+		ent = (dirent*)pages_get_page(ipg);
+		ent += num_entries - (ipg + 2) * ents_d;
 	}
 
 	strlcpy(ent->name, name, strlen(name) + 1);
@@ -148,31 +157,128 @@ directory_put(const char* dir_path, const char* name, int inum)
 }
 
 int
+shift_back(int num_entries, dirent* ent, int ent_idx, int ptrs[2], int iptr)
+{
+	// ent_idx is zero-indexed
+	int ents_b = PAGE_SIZE / sizeof(dirent);
+	int ent_blk = ent_idx / ents_b;
+	int num_blks = num_entries / ents_b;
+
+	dirent* tmp_ent1 = alloca(sizeof(dirent));
+	dirent* tmp_ent2 = alloca(sizeof(dirent));
+
+	int blk = num_blks;
+
+	do {
+		int* ipgs = NULL;
+		void* dir_end = NULL;
+		void* dir_start = NULL;
+		size_t size = -1;
+
+		if (blk == num_blks) {
+			if (blk == 0 || blk == 1) {
+				dir_start = pages_get_page(ptrs[blk]);
+				dir_end = dir_start + (num_entries - (num_blks - 1) * ents_b) * sizeof(dirent);
+			}
+			else {
+				ipgs = pages_get_page(iptr);
+				dir_start = pages_get_page(ipgs[blk - 2]);
+				dir_end = dir_start + (num_entries - (num_blks - 1) * ents_b) * sizeof(dirent);
+			}
+
+			if (dir_start == (void*)(-1))
+				return -1;
+
+			if (blk == ent_blk) {
+				size = (intptr_t)dir_end - (intptr_t)(ent + 1);
+				memcpy((void*)ent, (void*)(ent + 1), size);
+				memset(dir_end - sizeof(dirent), 0, sizeof(dirent));
+				break;
+			}
+			else {
+				size = (intptr_t)dir_end - (intptr_t)dir_start - sizeof(dirent);
+				memcpy((void*)tmp_ent2, dir_start, sizeof(dirent));
+				memcpy(dir_start, dir_start + sizeof(dirent), size);
+				memset(dir_end - sizeof(dirent), 0, sizeof(dirent));
+				continue;
+			}
+		}
+
+		if (blk == ent_blk) {
+			if (blk == 0 || blk == 1) {
+				dir_end = pages_get_page(ptrs[blk]) + PAGE_SIZE;
+			}
+			else {
+				ipgs = pages_get_page(iptr);
+				dir_end = pages_get_page(ipgs[blk - 2]) + PAGE_SIZE;
+			}
+
+			size = (intptr_t)dir_end - (intptr_t)(ent + 1);
+			memcpy((void*)ent, (void*)(ent + 1), size);
+			memcpy(dir_end - sizeof(dirent), tmp_ent2, sizeof(dirent));
+
+			break;
+		}
+
+		if (blk == 0 || blk == 1) {
+			dir_start = pages_get_page(ptrs[blk]);
+			dir_end = dir_start + PAGE_SIZE;
+		}
+		else {
+			ipgs = pages_get_page(iptr);
+			dir_start = pages_get_page(ipgs[blk - 2]);
+			dir_end = dir_start + PAGE_SIZE;
+		}
+
+		if (dir_start == (void*)(-1))
+			return -1;
+
+		memcpy(tmp_ent1, tmp_ent2, sizeof(dirent));
+		memcpy(tmp_ent2, dir_start, sizeof(dirent));
+
+		size = (intptr_t)dir_end - (intptr_t)dir_start - sizeof(dirent);
+		memcpy(dir_start, dir_start + sizeof(dirent), size);
+		memcpy(dir_end - sizeof(dirent), tmp_ent1, sizeof(dirent));
+
+		blk -= 1;
+	} while(blk >= 0);
+
+	return 0;
+}
+
+int
 directory_delete(const char* path)
 {
     printf(" + directory_delete(%s)\n", path);
 
 	// TODO: Add in case where we are deleting a directory
 
-	slist* p_tok = s_split(path, '/');
-
 	// if trying to delete the root
-	if (streq(p_tok->data, "") && !p_tok->next) {
+	if (streq(path, "/")) {
 		printf("directory_delete: Cannot delete root\n");
 		return -EINVAL;
 	}
 
-	// Get to directory to delete from
-	while (p_tok && p_tok->next && p_tok->next->next)
-		p_tok = p_tok->next;
+	int inum = tree_lookup(path);
+	inode* node = get_inode(inum);
 
+	// Get parent directory path, and deletee's name
+	char* dir_path = alloca(strlen(path) + 1);
+	char* name = dir_path + strlen(path) + 1;
+
+	while (name[0] != '/')
+		name--;
+	
+	name[0] = '\0';
+	name++;
+
+//	if(S_ISREG(node->mode))
+//		goto dir_delete_file;
+
+//dir_delete_file:
 	// get Parent directory inode
-    int inum = tree_lookup(p_tok->data);
-	inode* p_dir = get_inode(inum);
-
-	// get file name to delete
-	p_tok = p_tok->next;
-	char* name = p_tok->data;
+    int p_inum = tree_lookup(dir_path);
+	inode* p_dir = get_inode(p_inum);
 
 	// Remove directory entry
 	int num_entries = p_dir->size / sizeof(dirent);
@@ -191,66 +297,17 @@ directory_delete(const char* path)
 			curr_ptr += 1;
 		}
 		else if (i % (PAGE_SIZE / sizeof(dirent)) == 0) {
-			// TODO: Indirect Ptrs
-			ent = (dirent*)pages_get_page(p_dir->iptr);
+			int* pgs = (int*)pages_get_page(p_dir->iptr);
 			curr_ptr += 1;
+			ent = (dirent*)pages_get_page(pgs[curr_ptr - 2]);
 		}
 		else
 			ent += 1;
 	}
 
-	i += 1;
-	int ents_d = PAGE_SIZE / sizeof(dirent);
-	if (i == num_entries)
-		memset(ent, 0, sizeof(dirent));
-	else if (i < num_entries) {
-		ent += 1;
-		if (i <= ents_d) {
-			if (num_entries <= ents_d) {
-				// Shift Entries of first block back
-				void* dir_end = pages_get_page(p_dir->ptrs[0]) + num_entries * sizeof(dirent);
-				size_t size = (intptr_t)dir_end - (intptr_t)ent;
-				memcpy((void*)(ent - 1), (void*)ent, size);
-				memset(dir_end - sizeof(dirent), 0, sizeof(dirent));
-			}
-			else if (ents_d < num_entries <= 2 * ents_d) {
-				// Shift Remaining entries of first block back
-				void* dir_end = pages_get_page(p_dir->ptrs[0]) + PAGE_SIZE;
-				size_t size = (intptr_t)dir_end - (intptr_t)ent;
-				memcpy((void*)(ent - 1), (void*)ent, size);
+	int err = shift_back(num_entries, ent, i, p_dir->ptrs, p_dir->iptr);
 
-				// Shift first entry of second block to last entry of first block
-				void* dir_start = pages_get_page(p_dir->ptrs[1]);
-				size = sizeof(dirent);
-				memcpy(dir_end - sizeof(dirent), dir_start, size);
-
-				// Shift Remaining elements of second block back one entry
-				dir_end = dir_start + num_entries * sizeof(dirent);
-				size = (intptr_t)dir_end - (intptr_t)dir_start - sizeof(dirent);
-				memcpy(dir_start, dir_start + sizeof(dirent), size);
-				memset(dir_end - sizeof(dirent), 0, sizeof(dirent));
-			}
-			else {
-				// TODO: Indirect Pointers
-			}
-		}
-		else if (ents_d < i <= 2 * ents_d) {
-			if (ents_d < num_entries <= 2 * ents_d) {
-				// Shift Entries of second block back
-				void* dir_end = pages_get_page(p_dir->ptrs[1]) + (num_entries - ents_d) * sizeof(dirent);
-				size_t size = (intptr_t)dir_end - (intptr_t)ent;
-				memcpy((void*)(ent - 1), (void*)ent, size);
-				memset(dir_end - sizeof(dirent), 0, sizeof(dirent));
-			}
-			else {
-				// TODO: Indirect Pointers
-			}
-		}
-		else {
-			// TODO: Indirect Pointers
-		}
-	}
-	else {
+	if (err == -1) {
 		printf("directory_delete: Item to delete not found\n");
 		return -ENOENT;
 	}
@@ -281,18 +338,14 @@ directory_list(inode* dd)
 				ent = (dirent*)pages_get_page(dd->ptrs[1]);
 				curr_ptr += 1;
 			}
-			else if (curr_ptr == 1) {
-				// TODO: Indirect Pointers
-				ent = (dirent*)pages_get_page(dd->iptr);
-				curr_ptr += 1;
-			}
 			else {
-				//int* indir_page = (int*)pages_get_page();
+				int* ipgs = (int*)pages_get_page(dd->iptr);
+				ent = (dirent*)pages_get_page(ipgs[curr_ptr - 1]);
+				curr_ptr += 1;
 			}
 		}
 		else 
 			ent += 1;
-
 	}
 
     return ys;

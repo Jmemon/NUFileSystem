@@ -72,6 +72,9 @@ storage_stat(const char* path, struct stat* st)
 int
 storage_read(const char* path, char* buf, size_t size, off_t offset)
 {
+	void* data = NULL;
+	int* ipgs = NULL;
+
     int inum = tree_lookup(path);
     if (inum < 0)
         return inum;
@@ -86,31 +89,38 @@ storage_read(const char* path, char* buf, size_t size, off_t offset)
     if (offset + size >= node->size)
         size = node->size - offset;
 
-	if (offset + size <= PAGE_SIZE) {
-		void* data = pages_get_page(node->ptrs[0]);
-		printf(" + reading from page: %d\n", node->ptrs[0]);
-		memcpy(buf, data + offset, size);
-	}
-	else if (PAGE_SIZE < offset + size <= 2 * PAGE_SIZE) {
-		void* data = NULL;
+	// =================== Get Start and End Blocks ===================
+	int start_idx = 1;
+	while ((start_idx - 1) * PAGE_SIZE < offset && offset <= start_idx * PAGE_SIZE)
+		start_idx++;
+	start_idx -= 2; // block where read starts (zero-indexed)
 
-		if (offset < PAGE_SIZE) {
-			data = pages_get_page(node->ptrs[0]);
-			printf(" + reading from page: %d\n", node->ptrs[0]);
-			memcpy(buf, data + offset, PAGE_SIZE - offset);
+	int end_idx = 1;
+	while ((end_idx - 1) * PAGE_SIZE < (offset + size) && (offset + size) <= end_idx * PAGE_SIZE)
+		end_idx++;
+	end_idx -= 2; // block where read ends (zero-indexed)
+	// ================================================================
 
-			data = pages_get_page(node->ptrs[1]);
-			printf(" + reading from page: %d\n", node->ptrs[1]);
-			memcpy(buf + PAGE_SIZE - offset, data, size + offset - PAGE_SIZE);
-		}
+	int blk = -1;
+	for (int i = start_idx; i <= end_idx; i++) {
+
+		if (i == 0 || i == 1)
+			blk = node->ptrs[i];
 		else {
-			data = pages_get_page(node->ptrs[1]);
-			printf(" + reading from page: %d\n", node->ptrs[1]);
-			memcpy(buf, data + offset - PAGE_SIZE, size);
+			ipgs = (int*)pages_get_page(node->iptr);
+			blk = ipgs[i - 2];
 		}
-	}
-	else {
-		// TODO: Indirect Pointer
+
+		data = pages_get_page(blk);
+
+		if (i == start_idx && i == end_idx)
+			memcpy(buf, data + (offset - start_idx * PAGE_SIZE), size);
+		else if (i == start_idx)
+			memcpy(buf, data + (offset - start_idx * PAGE_SIZE), (1 + start_idx) * PAGE_SIZE - offset);
+		else if (i == end_idx)
+			memcpy(buf, data, size - end_idx * PAGE_SIZE + offset);
+		else
+			memcpy(buf, data, PAGE_SIZE);
 	}
 
     return size;
@@ -119,6 +129,9 @@ storage_read(const char* path, char* buf, size_t size, off_t offset)
 int
 storage_write(const char* path, const char* buf, size_t size, off_t offset)
 {
+	int* ipgs = NULL;
+	void* data = NULL;
+
     int trv = storage_truncate(path, offset + size);
     if (trv < 0)
         return trv;
@@ -137,31 +150,39 @@ storage_write(const char* path, const char* buf, size_t size, off_t offset)
     if (offset + size >= node->size)
         size = node->size - offset;
 
-	if (offset + size <= PAGE_SIZE) {
-		void* data = pages_get_page(node->ptrs[0]);
-		printf(" + writing to page: %d\n", node->ptrs[0]);
-		memcpy(data + offset, (void*)buf, size);
-	}
-	else if (PAGE_SIZE < offset + size <= 2 * PAGE_SIZE) {
-		void* data = NULL;
+	// =================== Get Start and End Blocks ===================
+	int start_idx = 1;
+	while ((start_idx - 1) * PAGE_SIZE < offset && offset <= start_idx * PAGE_SIZE)
+		start_idx++;
+	start_idx -= 2; // block where write starts (zero-indexed)
 
-		if (offset < PAGE_SIZE) {
-			data = pages_get_page(node->ptrs[0]);
-			printf(" + writing to page: %d\n", node->ptrs[0]);
-			memcpy(data + offset, (void*)buf, PAGE_SIZE - offset);
+	int end_idx = 1;
+	while ((end_idx - 1) * PAGE_SIZE < (offset + size) && (offset + size) <= end_idx * PAGE_SIZE)
+		end_idx++;
+	end_idx -= 2; // block where write ends (zero-indexed)
+	// ================================================================
 
-			data = pages_get_page(node->ptrs[1]);
-			printf(" + reading from page: %d\n", node->ptrs[1]);
-			memcpy(data, (void*)(buf) + PAGE_SIZE - offset, size + offset - PAGE_SIZE);
-		}
+	int blk = -1;
+	int num_pages = end_idx - start_idx + 1;
+	for (int i = start_idx; i <= end_idx; i++) {
+
+		if (i == 0 || i == 1)
+			blk = node->ptrs[i];
 		else {
-			data = pages_get_page(node->ptrs[1]);
-			printf(" + reading from page: %d\n", node->ptrs[1]);
-			memcpy(data + offset - PAGE_SIZE, (void*)buf, size);
+			ipgs = (int*)pages_get_page(node->iptr);
+			blk = ipgs[i - 2];
 		}
-	}
-	else {
-		// TODO: Indirect Pointer
+
+		data = pages_get_page(blk);
+
+		if (i == start_idx && i == end_idx)
+			memcpy(data + (offset - start_idx * PAGE_SIZE), buf, size);
+		else if (i == start_idx)
+			memcpy(data + (offset - start_idx * PAGE_SIZE), buf, (1 + start_idx) * PAGE_SIZE - offset);
+		else if (i == end_idx)
+			memcpy(data, buf, size - end_idx * PAGE_SIZE + offset);
+		else
+			memcpy(data, buf, PAGE_SIZE);
 	}
 
     return size;

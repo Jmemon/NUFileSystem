@@ -1,6 +1,7 @@
 
 #include <stdint.h>
 #include <errno.h>
+#include <assert.h>
 
 #include "pages.h"
 #include "inode.h"
@@ -108,48 +109,88 @@ grow_inode(inode* node, int size)
 		return shrink_inode(node, size);
 	}
 
-	int blks_needed = (size - 1) / PAGE_SIZE + 1;
+	int blks_needed = ((size - 1) / PAGE_SIZE) + 1;
+	int blks_allocd = node->size == 0 ? 0 : ((node->size - 1) / PAGE_SIZE) + 1;
 
 	if (blks_needed == 1) {
-		if (node->ptrs[0] != -1) {
-			node->size = size;
-			return size;
-		}
-		else {
-			int pnum = alloc_page();
+		int pnum = -1;
+
+		if (node->ptrs[0] == -1) {
+			pnum = alloc_page();
 			node->ptrs[0] = pnum;
 			node->size = size;
-			return size;		
+			blks_allocd += 1;
 		}
+
+		assert(blks_needed == blks_allocd);
+		node->size = size;
+		return size;
 	}
 	else if (blks_needed == 2) {
 		int pnum = -1;
+
+		if (node->ptrs[1] == -1) {
+			pnum = alloc_page();
+			if (pnum == -1)
+				return -1;
+			node->ptrs[1] = pnum;
+			blks_allocd += 1;
+		}
 
 		if (node->ptrs[0] == -1) {
 			pnum = alloc_page();
 			if (pnum == -1)
 				return -1;
 			node->ptrs[0] = pnum;
-
-			pnum = alloc_page();
-			if (pnum == -1)
-				return -1;
-			node->ptrs[1] = pnum;
-		}
-		else if (node->ptrs[1] == -1) {
-			pnum = alloc_page();
-			if (pnum == -1)
-				return -1;
-			node->ptrs[1] = pnum;
+			blks_allocd += 1;
 		}
 
+		assert(blks_needed == blks_allocd);
 		node->size = size;
 		return size;
 	}
 	else {
 		int pnum = -1;
 
-		// TODO: grow_inode iptrs
+		if (node->iptr == -1) {
+			pnum = alloc_page();
+			if (pnum == -1)
+				return -1;
+			node->iptr = pnum;
+			memset(pages_get_page(pnum), 0, PAGE_SIZE);
+		}
+
+		if (node->ptrs[1] == -1) {
+			pnum = alloc_page();
+			if (pnum == -1)
+				return -1;
+			node->ptrs[1] = pnum;
+			blks_allocd += 1;
+		}
+
+		if (node->ptrs[0] == -1) {
+			pnum = alloc_page();
+			if (pnum == -1)
+				return -1;
+			node->ptrs[0] = pnum;
+			blks_allocd += 1;
+		}
+
+		int* indir = (int*)pages_get_page(node->iptr);
+		for (int i = 0; i < blks_allocd - 2; i++) 
+			indir += 1;
+
+		// Assumes won't need a second order indirect pointer
+		do {
+			*indir = alloc_page();
+			if (*indir == -1)
+				return -1;
+			blks_allocd += 1;
+			indir += 1;
+		} while (blks_allocd < blks_needed);
+
+		assert(blks_needed == blks_allocd);
+		return size;
 	}
 
 	return -1;
@@ -168,8 +209,7 @@ shrink_inode(inode* node, int size)
 		printf("grow_inode: requested new size of %d, must be positive\n", size);
 		return -EINVAL;
 	}
-
-	if (size == 0) {
+	else if (size == 0) {
 		node->ptrs[0] = -1;
 		node->ptrs[1] = -1;
 		node->iptr = -1;
@@ -182,49 +222,50 @@ shrink_inode(inode* node, int size)
 		return grow_inode(node, size);
 	}
 
-	int blks_needed = size / PAGE_SIZE + 1;
+	int blks_needed = ((size - 1) / PAGE_SIZE) + 1;
+	int blks_allocd = node->size == 0 ? 0 : ((node->size - 1) / PAGE_SIZE) + 1;
 
 	if (blks_needed == 1) {
 		if (node->iptr != -1) {
 			free_page(node->iptr);
 			node->iptr = -1;
+			blks_allocd -= 1;
+		}
 
+		if (node->ptrs[1] != -1) {
 			free_page(node->ptrs[1]);
 			node->ptrs[1] = -1;
+			blks_allocd -= 1;
+		}
 
-			node->size = size;
-			return size;
-		}
-		else if (node->ptrs[1] != -1) {
-			free_page(node->ptrs[1]);
-			node->ptrs[1] = -1;
-			node->size = size;
-			return size;		
-		}
-		else if (node->ptrs[0] != -1) {
-			node->size = size;
-			return size;
-		}
+		assert(blks_needed == blks_allocd);
+		node->size = size;	
+		return size;
 	}
 	else if (blks_needed == 2) {
-		int pnum = -1;
-
 		if (node->iptr != -1) {
 			free_page(node->iptr);
 			node->iptr = -1;
-			node->size = size;
-			return size;
-		}
-		else if (node->ptrs[1] != -1) {
-			node->size = size;
-			return size;
 		}
 
+		assert(blks_needed == blks_allocd);
+		node->size = size;
+		return size;
 	}
 	else {
-		int pnum = -1;
+		int* indir = (int*)pages_get_page(node->iptr);
+		for (int i = 0; i < blks_allocd - 2; i++) 
+			indir += 1;
 
-		// TODO: shrink_inode iptrs
+		// Assumes won't need a second order indirect pointer
+		do {
+			*indir = 0;
+			blks_allocd -= 1;
+			indir -= 1;
+		} while (blks_allocd < blks_needed);
+
+		node->size = size;
+		return size;
 	}
 
 	return -1;
