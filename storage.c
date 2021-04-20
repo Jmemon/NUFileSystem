@@ -99,7 +99,7 @@ storage_read(const char* path, char* buf, size_t size, off_t offset)
 	// ================================================================
 
 	void* data = NULL;
-	int* ipgs = NULL;
+	int* ipgs = (int*)pages_get_page(node->iptr);
 
 	int blk = -1;
 	size_t sz = 0;
@@ -108,10 +108,8 @@ storage_read(const char* path, char* buf, size_t size, off_t offset)
 
 		if (i == 0 || i == 1)
 			blk = node->ptrs[i];
-		else {
-			ipgs = (int*)pages_get_page(node->iptr);
+		else
 			blk = ipgs[i - 2];
-		}
 
 		data = pages_get_page(blk);
 
@@ -134,6 +132,7 @@ storage_read(const char* path, char* buf, size_t size, off_t offset)
 
 		total_read += sz;
 	}
+
 	if (total_read != size) {
 		printf("storage_read: req read size %d; actual read size %d\n", size, total_read);
 		size = total_read;
@@ -178,9 +177,6 @@ storage_write(const char* path, const char* buf, size_t size, off_t offset)
 	end_idx -= 1; // block where write ends (zero-indexed)
 	// ================================================================
 
-	printf("start_idx: %d\n", start_idx);
-	printf("end_idx: %d\n\n", end_idx);
-
 	int blk = -1;
 	int sz = 0;
 	int total_write = 0;
@@ -192,8 +188,6 @@ storage_write(const char* path, const char* buf, size_t size, off_t offset)
 			ipgs = (int*)pages_get_page(node->iptr);
 			blk = ipgs[i - 2];
 		}
-
-		printf("blk : %d\n", blk);
 
 		data = pages_get_page(blk);
 
@@ -215,12 +209,10 @@ storage_write(const char* path, const char* buf, size_t size, off_t offset)
 		}
 
 		total_write += sz;
-		printf("sz  : %d\n", sz);
-		printf("total_write: %d\n\n", total_write);
 	}
 
 	if (total_write != size) {
-		printf("storage_write: req write size %d; actual write size %d\n", size, total_write);
+		printf("storage_write: req write size %d; actual write size %d\n\n", size, total_write);
 		size = total_write;
 	}
 

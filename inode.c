@@ -23,8 +23,7 @@ void
 print_inode(inode* node)
 {
     if (node) {
-		printf("node{refs: %d, mode: %04o, size: %d, ptrs[0]: %d, \
-				ptrs[1]: %d, iptr: %d, acc: %ld, mod: %ld}\n", 
+		printf("node{refs: %d, mode: %04o, size: %d, ptrs[0]: %d, ptrs[1]: %d, iptr: %d, acc: %ld, mod: %ld}\n", 
 				node->refs, node->mode, node->size, node->ptrs[0], 
 				node->ptrs[1], node->iptr, node->acc, node->mod);
     }
@@ -154,12 +153,12 @@ grow_inode(inode* node, int size)
 	else {
 		int pnum = -1;
 
-		if (node->iptr == -1) {
+		if (node->ptrs[0] == -1) {
 			pnum = alloc_page();
 			if (pnum == -1)
 				return -1;
-			node->iptr = pnum;
-			memset(pages_get_page(pnum), 0, PAGE_SIZE);
+			node->ptrs[0] = pnum;
+			blks_allocd += 1;
 		}
 
 		if (node->ptrs[1] == -1) {
@@ -170,26 +169,26 @@ grow_inode(inode* node, int size)
 			blks_allocd += 1;
 		}
 
-		if (node->ptrs[0] == -1) {
+		if (node->iptr == -1) {
 			pnum = alloc_page();
 			if (pnum == -1)
 				return -1;
-			node->ptrs[0] = pnum;
-			blks_allocd += 1;
+			node->iptr = pnum;
+			memset(pages_get_page(pnum), 0, PAGE_SIZE);
+
+			int* indir = (int*)pages_get_page(node->iptr);
+			for (int i = 0; i < blks_allocd - 2; i++) 
+				indir += 1;
+
+			// Assumes won't need a second order indirect pointer
+			do {
+				*indir = alloc_page();
+				if (*indir == -1)
+					return -1;
+				blks_allocd += 1;
+				indir += 1;
+			} while (blks_allocd < blks_needed);
 		}
-
-		int* indir = (int*)pages_get_page(node->iptr);
-		for (int i = 0; i < blks_allocd - 2; i++) 
-			indir += 1;
-
-		// Assumes won't need a second order indirect pointer
-		do {
-			*indir = alloc_page();
-			if (*indir == -1)
-				return -1;
-			blks_allocd += 1;
-			indir += 1;
-		} while (blks_allocd < blks_needed);
 
 		assert(blks_needed == blks_allocd);
 		return size;

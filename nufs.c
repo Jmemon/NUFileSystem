@@ -144,10 +144,8 @@ nufs_symlink(const char *from, const char *to)
 	mode_t mode = default_symlink_mode;
 	int rv = storage_mknod(from, mode);
 
-	char* buf = alloca(strlen(to) + 1);
-	strlcpy(buf, to, strlen(to) + 1);
-	rv = storage_write(from, (void*)buf, strlen(to) + 1, 0);
-	if (rv == strlen(to) + 1)
+	storage_write(from, to, strlen(to), 0);
+	if (rv == strlen(to))
 		rv = 0;
 	else
 		rv = -1;
@@ -190,7 +188,10 @@ nufs_rename(const char *from, const char *to)
 int
 nufs_chmod(const char *path, mode_t mode)
 {
-    int rv = -1;
+    int rv = 0;
+	int inum = tree_lookup(path);
+	inode* node = get_inode(inum);
+	node->mode = mode;
     printf("chmod(%s, %04o) -> %d\n", path, mode, rv);
     return rv;
 }
