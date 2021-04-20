@@ -142,10 +142,10 @@ int
 nufs_symlink(const char *from, const char *to)
 {
 	mode_t mode = default_symlink_mode;
-	int rv = storage_mknod(from, mode);
+	int rv = storage_mknod(to, mode);
 
-	storage_write(from, to, strlen(to), 0);
-	if (rv == strlen(to))
+	rv = storage_write(to, from, strlen(from) + 1, 0);
+	if (rv == strlen(from) + 1)
 		rv = 0;
 	else
 		rv = -1;
@@ -158,7 +158,10 @@ int
 nufs_readlink(const char *path, char* buf, size_t size)
 {
 	int rv = storage_read(path, buf, size, 0);
-	if (rv != size)
+	int inum = tree_lookup(path);
+	inode* node = get_inode(inum);
+
+	if (rv != node->size)
 		rv = -1;
 	else
 		rv = 0;
