@@ -264,6 +264,8 @@ directory_delete(const char* path)
 
 	// Get parent directory path, and deletee's name
 	char* dir_path = alloca(strlen(path) + 1);
+	strlcpy(dir_path, path, strlen(path) + 1);
+
 	char* name = dir_path + strlen(path) + 1;
 
 	while (name[0] != '/')
@@ -271,6 +273,10 @@ directory_delete(const char* path)
 	
 	name[0] = '\0';
 	name++;
+
+	printf("path    : %s\n", path);
+	printf("dir_path: %s\n", dir_path);
+	printf("name    : %s\n", name);
 
 //	if(S_ISREG(node->mode))
 //		goto dir_delete_file;
