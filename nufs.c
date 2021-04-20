@@ -6,6 +6,7 @@
 #include <sys/stat.h>
 #include <bsd/string.h>
 #include <assert.h>
+#include <alloca.h>
 
 #define FUSE_USE_VERSION 26
 #include <fuse.h>
@@ -19,6 +20,8 @@
 #include "globals.h"
 
 extern int num_mounts;
+
+extern const int default_symlink_mode;
 
 // implementation for: man 2 access
 // Checks if a file exists.
@@ -136,6 +139,37 @@ nufs_link(const char *from, const char *to)
 }
 
 int
+nufs_symlink(const char *from, const char *to)
+{
+	mode_t mode = default_symlink_mode;
+	int rv = storage_mknod(from, mode);
+
+	char* buf = alloca(strlen(to) + 1);
+	strlcpy(buf, to, strlen(to) + 1);
+	rv = storage_write(from, (void*)buf, strlen(to) + 1, 0);
+	if (rv == strlen(to) + 1)
+		rv = 0;
+	else
+		rv = -1;
+
+    printf("symlink(%s => %s) -> %d\n", from, to, rv);
+	return rv;
+}
+
+int
+nufs_readlink(const char *path, char* buf, size_t size)
+{
+	int rv = storage_read(path, buf, size, 0);
+	if (rv != size)
+		rv = -1;
+	else
+		rv = 0;
+
+    printf("readlink(%s) -> %d\n", path, rv);
+	return rv;
+}
+
+int
 nufs_rmdir(const char *path)
 {
     int rv = storage_unlink(path);
@@ -229,6 +263,8 @@ nufs_init_ops(struct fuse_operations* ops)
     ops->mkdir    = nufs_mkdir;
     ops->link     = nufs_link;
     ops->unlink   = nufs_unlink;
+	ops->symlink  = nufs_symlink;
+	ops->readlink = nufs_readlink;
     ops->rmdir    = nufs_rmdir;
     ops->rename   = nufs_rename;
     ops->chmod    = nufs_chmod;

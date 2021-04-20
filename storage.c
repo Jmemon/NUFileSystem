@@ -72,9 +72,6 @@ storage_stat(const char* path, struct stat* st)
 int
 storage_read(const char* path, char* buf, size_t size, off_t offset)
 {
-	void* data = NULL;
-	int* ipgs = NULL;
-
     int inum = tree_lookup(path);
     if (inum < 0)
         return inum;
@@ -90,18 +87,23 @@ storage_read(const char* path, char* buf, size_t size, off_t offset)
         size = node->size - offset;
 
 	// =================== Get Start and End Blocks ===================
-	int start_idx = 1;
-	while ((start_idx - 1) * PAGE_SIZE < offset && offset <= start_idx * PAGE_SIZE)
+	int start_idx = 0;
+	while (offset >= start_idx * PAGE_SIZE)
 		start_idx++;
-	start_idx -= 2; // block where read starts (zero-indexed)
+	start_idx -= 1; // block where read starts (zero-indexed)
 
-	int end_idx = 1;
-	while ((end_idx - 1) * PAGE_SIZE < (offset + size) && (offset + size) <= end_idx * PAGE_SIZE)
+	int end_idx = 0;
+	while (offset + size >= end_idx * PAGE_SIZE)
 		end_idx++;
-	end_idx -= 2; // block where read ends (zero-indexed)
+	end_idx -= 1; // block where read ends (zero-indexed)
 	// ================================================================
 
+	void* data = NULL;
+	int* ipgs = NULL;
+
 	int blk = -1;
+	size_t sz = 0;
+	size_t total_read = 0;
 	for (int i = start_idx; i <= end_idx; i++) {
 
 		if (i == 0 || i == 1)
@@ -113,14 +115,28 @@ storage_read(const char* path, char* buf, size_t size, off_t offset)
 
 		data = pages_get_page(blk);
 
-		if (i == start_idx && i == end_idx)
-			memcpy(buf, data + (offset - start_idx * PAGE_SIZE), size);
-		else if (i == start_idx)
-			memcpy(buf, data + (offset - start_idx * PAGE_SIZE), (1 + start_idx) * PAGE_SIZE - offset);
-		else if (i == end_idx)
-			memcpy(buf, data, size - end_idx * PAGE_SIZE + offset);
-		else
-			memcpy(buf, data, PAGE_SIZE);
+		if (i == start_idx && i == end_idx) {
+			sz = size;
+			memcpy(buf + total_read, data + (offset - start_idx * PAGE_SIZE), sz);
+		}
+		else if (i == start_idx) {
+			sz = (1 + start_idx) * PAGE_SIZE - offset;
+			memcpy(buf + total_read, data + (offset - start_idx * PAGE_SIZE), sz);
+		}
+		else if (i == end_idx) {
+			sz = size + offset - end_idx * PAGE_SIZE;
+			memcpy(buf + total_read, data, sz);
+		}
+		else {
+			sz = PAGE_SIZE;
+			memcpy(buf + total_read, data, sz);
+		}
+
+		total_read += sz;
+	}
+	if (total_read != size) {
+		printf("storage_read: req read size %d; actual read size %d\n", size, total_read);
+		size = total_read;
 	}
 
     return size;
@@ -148,22 +164,26 @@ storage_write(const char* path, const char* buf, size_t size, off_t offset)
         return 0;
 
     if (offset + size >= node->size)
-        size = node->size - offset;
+        grow_inode(node, offset + size);
 
 	// =================== Get Start and End Blocks ===================
-	int start_idx = 1;
-	while ((start_idx - 1) * PAGE_SIZE < offset && offset <= start_idx * PAGE_SIZE)
+	int start_idx = 0;
+	while (offset >= start_idx * PAGE_SIZE)
 		start_idx++;
-	start_idx -= 2; // block where write starts (zero-indexed)
+	start_idx -= 1; // block where write starts (zero-indexed)
 
-	int end_idx = 1;
-	while ((end_idx - 1) * PAGE_SIZE < (offset + size) && (offset + size) <= end_idx * PAGE_SIZE)
+	int end_idx = 0;
+	while (offset + size >= end_idx * PAGE_SIZE)
 		end_idx++;
-	end_idx -= 2; // block where write ends (zero-indexed)
+	end_idx -= 1; // block where write ends (zero-indexed)
 	// ================================================================
 
+	printf("start_idx: %d\n", start_idx);
+	printf("end_idx: %d\n\n", end_idx);
+
 	int blk = -1;
-	int num_pages = end_idx - start_idx + 1;
+	int sz = 0;
+	int total_write = 0;
 	for (int i = start_idx; i <= end_idx; i++) {
 
 		if (i == 0 || i == 1)
@@ -173,16 +193,35 @@ storage_write(const char* path, const char* buf, size_t size, off_t offset)
 			blk = ipgs[i - 2];
 		}
 
+		printf("blk : %d\n", blk);
+
 		data = pages_get_page(blk);
 
-		if (i == start_idx && i == end_idx)
-			memcpy(data + (offset - start_idx * PAGE_SIZE), buf, size);
-		else if (i == start_idx)
-			memcpy(data + (offset - start_idx * PAGE_SIZE), buf, (1 + start_idx) * PAGE_SIZE - offset);
-		else if (i == end_idx)
-			memcpy(data, buf, size - end_idx * PAGE_SIZE + offset);
-		else
-			memcpy(data, buf, PAGE_SIZE);
+		if (i == start_idx && i == end_idx) {
+			sz = size;
+			memcpy(data + (offset - start_idx * PAGE_SIZE), buf + total_write, sz);
+		}
+		else if (i == start_idx) {
+			sz = (1 + start_idx) * PAGE_SIZE - offset;
+			memcpy(data + (offset - start_idx * PAGE_SIZE), buf + total_write, sz);
+		}
+		else if (i == end_idx) {
+			sz = size + offset - end_idx * PAGE_SIZE;
+			memcpy(data, buf + total_write, sz);
+		}
+		else {
+			sz = PAGE_SIZE;
+			memcpy(data, buf + total_write, sz);
+		}
+
+		total_write += sz;
+		printf("sz  : %d\n", sz);
+		printf("total_write: %d\n\n", total_write);
+	}
+
+	if (total_write != size) {
+		printf("storage_write: req write size %d; actual write size %d\n", size, total_write);
+		size = total_write;
 	}
 
     return size;
