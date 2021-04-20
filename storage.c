@@ -231,6 +231,13 @@ storage_mknod(const char* path, int mode)
     inode* node = get_inode(inum);
     node->mode = mode;
     node->size = 0;
+	if (S_ISDIR(mode))
+		node->refs = 2;
+	else if (S_ISREG(mode))
+		node->refs = 1;
+	node->ptrs[0] = -1;
+	node->ptrs[1] = -1;
+	node->iptr = -1;
 
     printf("+ mknod create %s in %s [%04o] - #%d\n", name, dir_path, mode, inum);
 
@@ -287,8 +294,6 @@ storage_link(const char* from, const char* to)
 int
 storage_rename(const char* from, const char* to)
 {
-	// TODO: Include case where need to create some parent directories
-
 	int inum = tree_lookup(from);
 	directory_delete(from);
 
@@ -312,6 +317,11 @@ storage_rename(const char* from, const char* to)
 int
 storage_set_time(const char* path, const struct timespec ts[2])
 {
-    // Maybe we need space in a pnode for timestamps.
+	int inum = tree_lookup(path);
+	inode* node = get_inode(inum);
+
+	node->acc = ts[0].tv_sec;
+	node->mod = ts[1].tv_sec;
+
     return 0;
 }

@@ -251,8 +251,6 @@ directory_delete(const char* path)
 {
     printf(" + directory_delete(%s)\n", path);
 
-	// TODO: Add in case where we are deleting a directory
-
 	// if trying to delete the root
 	if (streq(path, "/")) {
 		printf("directory_delete: Cannot delete root\n");
@@ -261,6 +259,15 @@ directory_delete(const char* path)
 
 	int inum = tree_lookup(path);
 	inode* node = get_inode(inum);
+	printf("path: %s\n", path);
+	printf("mode: %04o\n", node->mode);
+	printf("size: %04o\n", node->size);
+	printf("isdr: %d\n", S_ISDIR(node->mode));
+
+	if (S_ISDIR(node->mode) && node->size > 0) {
+		printf("directory_delete: Cannot delete a nonempty directory\n");
+		return -EINVAL;
+	}
 
 	// Get parent directory path, and deletee's name
 	char* dir_path = alloca(strlen(path) + 1);
@@ -274,16 +281,8 @@ directory_delete(const char* path)
 	name[0] = '\0';
 	name++;
 
-	printf("path    : %s\n", path);
-	printf("dir_path: %s\n", dir_path);
-	printf("name    : %s\n", name);
-
-//	if(S_ISREG(node->mode))
-//		goto dir_delete_file;
-
-//dir_delete_file:
 	// get Parent directory inode
-    int p_inum = tree_lookup(dir_path);
+	int p_inum = tree_lookup(dir_path);
 	inode* p_dir = get_inode(p_inum);
 
 	// Remove directory entry

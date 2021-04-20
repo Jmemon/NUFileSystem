@@ -4,11 +4,13 @@
 #include "pages.h"
 
 typedef struct inode {
-	short refs;
+	char refs;
     int mode; // permission & type; zero for unused
     int size; // bytes
 	int ptrs[2]; // direct pointers
 	int iptr; // single indirect pointer`
+	long acc; // last access time
+	long mod; // last modification time
 } inode;
 
 void print_inode(inode* node);

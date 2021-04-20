@@ -23,13 +23,13 @@ void
 print_inode(inode* node)
 {
     if (node) {
-		printf("node{refs: %d, mode: %04o, size: %d, ptrs[0]: %d, ptrs[1]: %d, iptr: %d}\n", 
-				node->refs, node->mode, node->size,
-				node->ptrs[0], node->ptrs[1], node->iptr);
+		printf("node{refs: %d, mode: %04o, size: %d, ptrs[0]: %d, \
+				ptrs[1]: %d, iptr: %d, acc: %ld, mod: %ld}\n", 
+				node->refs, node->mode, node->size, node->ptrs[0], 
+				node->ptrs[1], node->iptr, node->acc, node->mod);
     }
-    else {
+    else
         printf("node{null}\n");
-    }
 }
 
 void
@@ -74,6 +74,8 @@ alloc_inode()
 			node->ptrs[0] = -1;
 			node->ptrs[1] = -1;
 			node->iptr = -1;
+			node->acc = -1;
+			node->mod = -1;
             printf("+ alloc_inode() -> %d\n", ii);
             return ii;
         }
