@@ -61,11 +61,12 @@ storage_stat(const char* path, struct stat* st)
     print_inode(node);
 
     memset(st, 0, sizeof(struct stat));
-    st->st_uid   = getuid();
-    st->st_mode  = node->mode;
-    st->st_size  = node->size;
-	st->st_ino   = inum;
-    st->st_nlink = node->refs;
+    st->st_uid    = getuid();
+    st->st_mode   = node->mode;
+    st->st_size   = node->size;
+	st->st_ino    = inum;
+    st->st_nlink  = node->refs;
+	st->st_blocks = node->size == 0 ? 0 : (node->size - 1) / PAGE_SIZE + 1;
     return 0;
 }
 
@@ -86,24 +87,18 @@ storage_read(const char* path, char* buf, size_t size, off_t offset)
     if (offset + size >= node->size)
         size = node->size - offset;
 
-	// =================== Get Start and End Blocks ===================
-	int start_idx = 0;
-	while (offset >= start_idx * PAGE_SIZE)
-		start_idx++;
-	start_idx -= 1; // block where read starts (zero-indexed)
+	// Zero-Indexed
+	int start_idx = (offset - 1) / PAGE_SIZE;
+	int end_idx = (size + offset - 1) / PAGE_SIZE;
 
-	int end_idx = 0;
-	while (offset + size >= end_idx * PAGE_SIZE)
-		end_idx++;
-	end_idx -= 1; // block where read ends (zero-indexed)
-	// ================================================================
-
-	void* data = NULL;
 	int* ipgs = (int*)pages_get_page(node->iptr);
+	void* data = NULL;
 
 	int blk = -1;
 	size_t sz = 0;
 	size_t total_read = 0;
+	int data_off = 0;
+
 	for (int i = start_idx; i <= end_idx; i++) {
 
 		if (i == 0 || i == 1)
@@ -115,21 +110,26 @@ storage_read(const char* path, char* buf, size_t size, off_t offset)
 
 		if (i == start_idx && i == end_idx) {
 			sz = size;
-			memcpy(buf + total_read, data + (offset - start_idx * PAGE_SIZE), sz);
+			data_off = offset + total_read - start_idx * PAGE_SIZE;
 		}
 		else if (i == start_idx) {
 			sz = (1 + start_idx) * PAGE_SIZE - offset;
-			memcpy(buf + total_read, data + (offset - start_idx * PAGE_SIZE), sz);
+			data_off = offset + total_read - start_idx * PAGE_SIZE;
 		}
 		else if (i == end_idx) {
 			sz = size + offset - end_idx * PAGE_SIZE;
-			memcpy(buf + total_read, data, sz);
+			data_off = 0;
 		}
 		else {
 			sz = PAGE_SIZE;
-			memcpy(buf + total_read, data, sz);
+			data_off = 0;
 		}
 
+		printf("\ndata: %p ; end: %p\n", data, data + PAGE_SIZE);
+		printf("data_off: %d\n", data_off);
+		printf("sz: %d\n", sz);
+
+		memcpy((void*)buf + total_read, data + data_off, sz);
 		total_read += sz;
 	}
 
@@ -165,21 +165,16 @@ storage_write(const char* path, const char* buf, size_t size, off_t offset)
     if (offset + size >= node->size)
         grow_inode(node, offset + size);
 
-	// =================== Get Start and End Blocks ===================
-	int start_idx = 0;
-	while (offset >= start_idx * PAGE_SIZE)
-		start_idx++;
-	start_idx -= 1; // block where write starts (zero-indexed)
-
-	int end_idx = 0;
-	while (offset + size >= end_idx * PAGE_SIZE)
-		end_idx++;
-	end_idx -= 1; // block where write ends (zero-indexed)
-	// ================================================================
+	// Zero-Indexed
+	int start_idx = (offset - 1) / PAGE_SIZE;
+	int end_idx = (offset + size - 1) / PAGE_SIZE;
+	assert(0 <= start_idx && start_idx <= end_idx);
 
 	int blk = -1;
-	int sz = 0;
-	int total_write = 0;
+	size_t sz = 0;
+	size_t total_write = 0;
+	int data_off = 0;
+
 	for (int i = start_idx; i <= end_idx; i++) {
 
 		if (i == 0 || i == 1)
@@ -193,21 +188,25 @@ storage_write(const char* path, const char* buf, size_t size, off_t offset)
 
 		if (i == start_idx && i == end_idx) {
 			sz = size;
-			memcpy(data + (offset - start_idx * PAGE_SIZE), buf + total_write, sz);
+			data_off = offset - start_idx * PAGE_SIZE;
 		}
 		else if (i == start_idx) {
 			sz = (1 + start_idx) * PAGE_SIZE - offset;
-			memcpy(data + (offset - start_idx * PAGE_SIZE), buf + total_write, sz);
+			data_off = offset - start_idx * PAGE_SIZE;
 		}
 		else if (i == end_idx) {
 			sz = size + offset - end_idx * PAGE_SIZE;
-			memcpy(data, buf + total_write, sz);
+			data_off = 0;
 		}
 		else {
 			sz = PAGE_SIZE;
-			memcpy(data, buf + total_write, sz);
+			data_off = 0;
 		}
 
+		printf("\ndata: %p ; end: %p\n", data, data + PAGE_SIZE);
+		printf("data_off: %d\n", data_off);
+		printf("sz: %d\n", sz);
+		memcpy(data + data_off, (void*)buf + total_write, sz);
 		total_write += sz;
 	}
 

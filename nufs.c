@@ -29,9 +29,9 @@ int
 nufs_access(const char *path, int mask)
 {
     int rv = 0;
-
-	/*int inum = tree_lookup(path);
-	if (inum == -ENOENT) {
+/*
+	int inum = tree_lookup(path);
+	if (inum < 0) {
 		rv = -ENOENT;
 		goto access_done;
 	}
@@ -39,7 +39,7 @@ nufs_access(const char *path, int mask)
 	inode* node = get_inode(inum);
 	int val = node->mode && mask;
 
-	if (val && S_IRWXU > 0)
+	if (val == 0)
 		rv = -EACCES;
 
 access_done:*/
