@@ -2,6 +2,7 @@
 #include <stdint.h>
 #include <errno.h>
 #include <assert.h>
+#include <time.h>
 
 #include "pages.h"
 #include "inode.h"
@@ -22,6 +23,8 @@ extern const int default_file_mode;
 void
 print_inode(inode* node)
 {
+	node->acc = (long)time(NULL);
+
     if (node) {
 		printf("node{refs: %d, mode: %04o, size: %d, ptrs[0]: %d, ptrs[1]: %d, iptr: %d, acc: %ld, mod: %ld}\n", 
 				node->refs, node->mode, node->size, node->ptrs[0], 
@@ -110,6 +113,9 @@ grow_inode(inode* node, int size)
 		return shrink_inode(node, size);
 	}
 
+	node->acc = (long)time(NULL);
+	node->mod = (long)time(NULL);
+
 	int blks_needed = ((size - 1) / PAGE_SIZE) + 1;
 	int blks_allocd = node->size == 0 ? 0 : ((node->size - 1) / PAGE_SIZE) + 1;
 
@@ -158,6 +164,9 @@ shrink_inode(inode* node, int size)
 		printf("shrink_inode: size > node->size; called grow_inode\n");
 		return grow_inode(node, size);
 	}
+
+	node->acc = (long)time(NULL);
+	node->mod = (long)time(NULL);
 
 	int blks_needed = ((size - 1) / PAGE_SIZE) + 1;
 	int blks_allocd = node->size == 0 ? 0 : ((node->size - 1) / PAGE_SIZE) + 1;

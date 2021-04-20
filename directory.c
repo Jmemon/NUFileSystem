@@ -12,6 +12,7 @@
 #include <stdio.h>
 #include <stdint.h>
 #include <alloca.h>
+#include <time.h>
 
 #include "directory.h"
 #include "pages.h"
@@ -47,6 +48,8 @@ directory_init()
 dirent*
 directory_get(inode* dd, const char* name)
 {
+	dd->acc = (long)time(NULL);
+
 	int num_entries = dd->size / sizeof(dirent);
 	dirent* ent = (dirent*)pages_get_page(dd->ptrs[0]);
 	int curr_ptr = 0;
@@ -77,6 +80,8 @@ directory_get(inode* dd, const char* name)
 int
 directory_lookup(inode* dd, const char* name)
 {
+	dd->acc = (long)time(NULL);
+
 	dirent* ent = directory_get(dd, name);
 	if (ent)
 		return ent->inum;
@@ -99,6 +104,8 @@ tree_lookup(const char* path)
 	inode* node = get_inode(1);
 
 	while (p_tok) {
+		node->acc = (long)time(NULL);
+
 		inum = directory_lookup(node, p_tok->data);
 
 		if (inum != -ENOENT)
@@ -124,6 +131,8 @@ directory_put(const char* dir_path, const char* name, int inum)
 		return -ENOENT;
 	}
 	inode* node = get_inode(p_inum);
+	node->acc = (long)time(NULL);
+	node->mod = (long)time(NULL);
 
 	int num_entries = node->size / sizeof(dirent);
 	int ents_d = PAGE_SIZE / sizeof(dirent);
@@ -259,10 +268,8 @@ directory_delete(const char* path)
 
 	int inum = tree_lookup(path);
 	inode* node = get_inode(inum);
-	printf("path: %s\n", path);
-	printf("mode: %04o\n", node->mode);
-	printf("size: %04o\n", node->size);
-	printf("isdr: %d\n", S_ISDIR(node->mode));
+	node->acc = (long)time(NULL);
+	node->mod = (long)time(NULL);
 
 	if (S_ISDIR(node->mode) && node->size > 0) {
 		printf("directory_delete: Cannot delete a nonempty directory\n");
@@ -284,6 +291,8 @@ directory_delete(const char* path)
 	// get Parent directory inode
 	int p_inum = tree_lookup(dir_path);
 	inode* p_dir = get_inode(p_inum);
+	p_dir->acc = (long)time(NULL);
+	p_dir->mod = (long)time(NULL);
 
 	// Remove directory entry
 	int num_entries = p_dir->size / sizeof(dirent);
@@ -324,6 +333,8 @@ directory_delete(const char* path)
 slist*
 directory_list(inode* dd)
 {
+	dd->acc = (long)time(NULL);
+
     printf("+ directory_list()\n");
 
     slist* ys = NULL;
@@ -359,6 +370,8 @@ directory_list(inode* dd)
 void
 print_directory(inode* dd)
 {
+	dd->acc = (long)time(NULL);
+
     slist* items = directory_list(dd);
 
 	printf("Contents:\n");

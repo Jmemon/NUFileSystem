@@ -12,6 +12,7 @@
 #include <libgen.h>
 #include <bsd/string.h>
 #include <stdint.h>
+#include <time.h>
 
 #include "storage.h"
 #include "slist.h"
@@ -43,6 +44,8 @@ storage_init(const char* path)
 	node->ptrs[0] = 0;
 	node->ptrs[1] = -1;
 	node->iptr = -1;
+	node->acc = -1;
+	node->mod = -1;
 
 	// Set up Root
 	directory_init();
@@ -59,6 +62,8 @@ storage_stat(const char* path, struct stat* st)
     inode* node = get_inode(inum);
     printf("+ storage_stat(%s); inode %d\n", path, inum);
     print_inode(node);
+
+	node->acc = (long)time(NULL);
 
     memset(st, 0, sizeof(struct stat));
     st->st_uid    = getuid();
@@ -80,6 +85,8 @@ storage_read(const char* path, char* buf, size_t size, off_t offset)
     inode* node = get_inode(inum);
     printf("+ storage_read(%s); inode %d\n", path, inum);
     print_inode(node);
+
+	node->acc = (long)time(NULL);
 
     if (offset >= node->size)
         return 0;
@@ -125,10 +132,6 @@ storage_read(const char* path, char* buf, size_t size, off_t offset)
 			data_off = 0;
 		}
 
-		printf("\ndata: %p ; end: %p\n", data, data + PAGE_SIZE);
-		printf("data_off: %d\n", data_off);
-		printf("sz: %d\n", sz);
-
 		memcpy((void*)buf + total_read, data + data_off, sz);
 		total_read += sz;
 	}
@@ -158,6 +161,9 @@ storage_write(const char* path, const char* buf, size_t size, off_t offset)
     inode* node = get_inode(inum);
 	printf(" + storage_write(%s); inode %d\n", path, inum);
 	print_inode(node);
+
+	node->acc = (long)time(NULL);
+	node->mod = (long)time(NULL);
 
     if (offset >= node->size)
         return 0;
@@ -203,9 +209,6 @@ storage_write(const char* path, const char* buf, size_t size, off_t offset)
 			data_off = 0;
 		}
 
-		printf("\ndata: %p ; end: %p\n", data, data + PAGE_SIZE);
-		printf("data_off: %d\n", data_off);
-		printf("sz: %d\n", sz);
 		memcpy(data + data_off, (void*)buf + total_write, sz);
 		total_write += sz;
 	}
@@ -268,6 +271,8 @@ storage_mknod(const char* path, int mode)
 	node->ptrs[0] = -1;
 	node->ptrs[1] = -1;
 	node->iptr = -1;
+	node->acc = -1;
+	node->mod = -1;
 
     printf("+ mknod create %s in %s [%04o] - #%d\n", name, dir_path, mode, inum);
 

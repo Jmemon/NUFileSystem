@@ -2,6 +2,8 @@
 #ifndef GLOBALS_H
 #define GLOBALS_H
 
+#include <time.h>
+
 #include "inode.h"
 
 // Page
@@ -23,6 +25,7 @@ extern const int default_symlink_mode;
 // Mounting
 extern int num_mounts;
 
+// Utility Functions
 void globals_reset();
 void globals_print();
 int globals_init_check();

@@ -1,5 +1,6 @@
 #include <stdio.h>
 #include <sys/stat.h>
+#include <time.h>
 
 #include "globals.h"
 #include "inode.h"
@@ -52,6 +53,10 @@ globals_print()
 	printf("========INODE VARS=======\n");
 	printf("INODE_COUNT  : %d\n", INODE_COUNT);
 	printf("inode_base   : %p\n", inode_base);
+	printf("\n");
+
+	printf("========MOUNT VARS=======\n");
+	printf("num_mounts: %d\n", num_mounts);
 	printf("\n");
 }
 
